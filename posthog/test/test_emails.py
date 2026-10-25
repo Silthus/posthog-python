@@ -116,11 +116,12 @@ def test_send_posts_the_template_to_the_app_host(_name, overrides, extra_body):
     assert json.loads(request.body) == {
         "to": "user@example.com",
         "message_data": {"total": 19.5, "expires_at": "2026-11-20T00:00:00+00:00"},
+        "capture_engagement": True,
         **extra_body,
     }
 
 
-def test_a_template_send_that_sets_capture_engagement_uses_the_email_send_route():
+def test_a_template_send_that_turns_capture_off_uses_the_email_send_route():
     emails, adapter = emails_with([accepted("msg_1")])
 
     result = send(
@@ -591,6 +592,39 @@ def send_code(emails: Emails, **overrides: Any):
 
 @parameterized.expand(
     [
+        ("template_form_by_default", send, {}, SEND_URL, True),
+        ("template_form_on", send, {"capture_engagement": True}, SEND_URL, True),
+        (
+            "template_form_off",
+            send,
+            {"capture_engagement": False},
+            CODE_SEND_URL,
+            False,
+        ),
+        ("code_form_by_default", send_code, {"html": HTML}, CODE_SEND_URL, True),
+        (
+            "code_form_off",
+            send_code,
+            {"html": HTML, "capture_engagement": False},
+            CODE_SEND_URL,
+            False,
+        ),
+    ]
+)
+def test_every_send_says_whether_to_capture_engagement(
+    _name, send_form, overrides, url, captured
+):
+    emails, adapter = emails_with([accepted()])
+
+    send_form(emails, **overrides)
+
+    [request] = adapter.requests
+    assert request.url == url
+    assert json.loads(request.body)["capture_engagement"] is captured
+
+
+@parameterized.expand(
+    [
         ("html_only", {"html": HTML}, {"html": HTML}),
         ("text_only", {"text": "Reset it here."}, {"text": "Reset it here."}),
         (
@@ -637,6 +671,7 @@ def test_rendered_content_is_posted_as_is(_name, overrides, extra_body):
         "to": "user@example.com",
         "template_key": "password-reset",
         "subject": "Reset your password",
+        "capture_engagement": True,
         **extra_body,
     }
 
@@ -690,6 +725,7 @@ def test_a_local_template_is_sent_by_key_and_content_hash(_name, overrides, hash
         "message_data": {"first_name": "Jane"},
         "from": "Acme <hello@example.com>",
         "identifiers": {"distinct_id": "user_123"},
+        "capture_engagement": True,
     }
 
 
@@ -939,6 +975,7 @@ def test_rendered_content_carries_copies_headers_and_tags():
         "subject": "Reset your password",
         "html": HTML,
         **COPIES_HEADERS_AND_TAGS_BODY,
+        "capture_engagement": True,
     }
 
 

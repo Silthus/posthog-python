@@ -76,7 +76,7 @@ Errors: a send that is not queued raises :class:`EmailError`. Branch on
 - ``authentication_failed`` (401) or ``permission_denied`` (403): the key is
   wrong, or it lacks ``hog_flow:write``.
 - ``not_found`` (404): the template ID is wrong, or transactional email is not
-  enabled for the project. A template send with ``capture_engagement`` gets
+  enabled for the project. A template send with ``capture_engagement=False`` gets
   ``template_not_found`` for a wrong ID instead, and ``not_found`` from a
   PostHog version without the email send route.
 - ``client_disabled``: the client is disabled.
@@ -273,9 +273,12 @@ class TemplateEmailArgs(_RecipientArgs):
         distinct_id: The recipient's distinct ID in your product.
         idempotency_key: 1 to 255 visible ASCII characters.
         max_retries: Retries for this send, instead of the client's.
-        capture_engagement: Capture opens and clicks. Without it, the
-            project's setting applies. Setting it needs a PostHog version with
-            the email send route, ``/messaging/send/email/``.
+        capture_engagement: Capture the email's opens and clicks. It
+            defaults to ``True``. ``False`` turns capture off for this send.
+            A project whose admin turned engagement capture off captures
+            nothing, whatever the send asks.
+            ``False`` needs a PostHog version with the email send route,
+            ``/messaging/send/email/``.
     """
 
     template_id: Union[str, UUID]
@@ -312,8 +315,10 @@ class CodeEmailArgs(_RecipientArgs):
         tags: Names and values that PostHog adds to the email's engagement
             events.
         attachments: Files sent with the email.
-        capture_engagement: Capture opens and clicks. Without it, PostHog's
-            default applies, which is on.
+        capture_engagement: Capture the email's opens and clicks. It
+            defaults to ``True``. ``False`` turns capture off for this send.
+            A project whose admin turned engagement capture off captures
+            nothing, whatever the send asks.
         template_data: Values for the ``{{ variables.* }}`` placeholders.
         distinct_id: The recipient's distinct ID in your product.
         idempotency_key: 1 to 255 visible ASCII characters. Template sends
@@ -457,18 +462,17 @@ def _sender(args: Mapping[str, Any]) -> dict[str, Any]:
         sender["tags"] = _tags(args["tags"])
     if "attachments" in args:
         sender["attachments"] = _attachments(args["attachments"])
-    sender.update(_capture_engagement(args))
+    sender["capture_engagement"] = _capture_engagement(args)
     return sender
 
 
-def _capture_engagement(args: Mapping[str, Any]) -> dict[str, bool]:
-    if "capture_engagement" not in args:
-        return {}
-    if not isinstance(args["capture_engagement"], bool):
+def _capture_engagement(args: Mapping[str, Any]) -> bool:
+    capture = args.get("capture_engagement", True)
+    if not isinstance(capture, bool):
         raise _invalid(
             "capture_engagement", "capture_engagement must be True or False."
         )
-    return {"capture_engagement": args["capture_engagement"]}
+    return capture
 
 
 def _addresses(field: str, value: Any) -> list[str]:
@@ -591,14 +595,12 @@ def _prepare_send(args: Mapping[str, Any]) -> _PreparedSend:
     }
     if distinct_id is not None:
         payload["identifiers"] = {"distinct_id": distinct_id}
-    tracking = _capture_engagement(args)
-    if tracking:
-        # The template route drops fields it doesn't know, so only the email send route can take this one.
+    payload["capture_engagement"] = _capture_engagement(args)
+    if not payload["capture_engagement"]:
+        # The template route drops fields it doesn't know, so only the email send route can turn capture off.
         return _PreparedSend(
             path=_CODE_SEND_PATH,
-            body=_encode(
-                {"template": {"id": str(template_uuid)}, **payload, **tracking}
-            ),
+            body=_encode({"template": {"id": str(template_uuid)}, **payload}),
             idempotency_key=idempotency_key,
         )
     return _PreparedSend(
@@ -939,8 +941,10 @@ class Emails(_EmailsBase):
                 ``welcome:user_123``, to cover retries outside this call, too.
             max_retries: Retries for this send, instead of the client's.
                 ``0`` turns them off.
-            capture_engagement: Capture opens and clicks, instead of the
-                project's setting.
+            capture_engagement: Capture the email's opens and clicks. It
+                defaults to ``True``. ``False`` turns capture off for this
+                send. A project whose admin turned engagement capture off
+                captures nothing, whatever the send asks.
 
         Returns:
             The queued email. A result means PostHog queued the email, not that
