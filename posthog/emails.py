@@ -162,6 +162,7 @@ _IDEMPOTENCY_KEY = re.compile(r"^[\x21-\x7e]{1,255}$")
 _HEADER_TOKEN = re.compile(r"[\x21-\x7e]+")
 _IN_FLIGHT_CODES = frozenset({"idempotency_key_in_flight"})
 _QUOTA_CODES = frozenset({"quota_limited"})
+_TEMPLATE_CONFLICTS = frozenset({"template_outdated", "template_edited_in_posthog"})
 
 
 class EmailError(Exception):
@@ -685,7 +686,7 @@ def _error_name(status: Optional[int], code: str) -> str:
     if status == 409:
         return (
             "validation_error"
-            if code == "template_outdated"
+            if code in _TEMPLATE_CONFLICTS
             else "concurrent_idempotent_requests"
         )
     if status == 422:

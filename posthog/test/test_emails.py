@@ -797,7 +797,11 @@ def test_a_local_template_uploads_at_most_once_per_send(
     with pytest.raises(EmailError) as raised:
         send_local_template(emails)
 
-    assert (raised.value.status_code, raised.value.code) == (409, code)
+    assert (raised.value.status_code, raised.value.code, raised.value.name) == (
+        409,
+        code,
+        "validation_error",
+    )
     assert len(adapter.requests) == requests_made
 
 
